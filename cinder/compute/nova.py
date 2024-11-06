@@ -218,3 +218,7 @@ class API(base.Base):
                 resource_uuid=volume_id,
                 detail=message_field.Detail.NOTIFY_COMPUTE_SERVICE_FAILED)
         return result
+
+    def reset_server_state(self, context, server_id, state):
+        novaclient(context, privileged_user=True).servers.reset_state(
+            server_id, state)

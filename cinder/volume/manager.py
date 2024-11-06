@@ -85,6 +85,7 @@ from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import volume_migration
 from cinder.volume import volume_types
 from cinder.volume import volume_utils
+from cinder.compute import nova
 
 LOG = logging.getLogger(__name__)
 
@@ -1093,11 +1094,16 @@ class VolumeManager(manager.CleanableManager,
                             "status to %(status)s." % msg_args)
                 LOG.exception(msg, msg_args)
 
+        volume_status = fields.VolumeStatus.AVAILABLE
+        if volume.attach_status == fields.VolumeAttachStatus.ATTACHED:
+            volume_status = fields.VolumeStatus.IN_USE
+
         v_res = volume.update_single_status_where(
-            'available', 'reverting')
+            volume_status, fields.VolumeStatus.REVERTING)
+
         if not v_res:
             msg_args = {"id": volume.id,
-                        "status": 'available'}
+                        "status": volume_status}
             msg = _("Revert finished, but failed to reset "
                     "volume %(id)s status to %(status)s, "
                     "please manually reset it.") % msg_args
@@ -1123,6 +1129,21 @@ class VolumeManager(manager.CleanableManager,
         LOG.info(msg, msg_args)
         self._notify_about_volume_usage(context, volume, "revert.end")
         self._notify_about_snapshot_usage(context, snapshot, "revert.end")
+
+        if volume.attach_status == fields.VolumeAttachStatus.ATTACHED:
+            attachment = VA_LIST.get_all_by_volume_id(context, volume.id)[0]
+            instance_id = attachment.instance_uuid
+            attachments = VA_LIST.get_all_by_instance_uuid(context,
+                                                           instance_id)
+            for attachment in attachments:
+                if attachment.volume_id != volume.id:
+                    volume = objects.Volume.get_by_id(context,
+                                                      attachment.volume_id)
+                    if volume.status != fields.VolumeStatus.IN_USE:
+                        break
+            else:
+                LOG.info(f'Server {instance_id} reverted successfully.')
+                nova.API().reset_server_state(context, instance_id, 'stopped')
 
     @objects.Snapshot.set_workers
     def create_snapshot(self, context, snapshot):

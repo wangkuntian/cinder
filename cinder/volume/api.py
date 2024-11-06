@@ -62,6 +62,8 @@ from cinder.volume.flows.api import manage_existing
 from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import volume_types
 from cinder.volume import volume_utils
+from cinder.compute import nova
+
 
 allow_force_upload_opt = cfg.BoolOpt('enable_force_upload',
                                      default=False,
@@ -381,6 +383,51 @@ class API(base.Base):
                      "%(snap_id)s. Snapshot's status must be 'available'.")
                    % {"vol_id": volume.id,
                       "snap_id": snapshot.id})
+            raise exception.InvalidSnapshot(reason=msg)
+
+        self.volume_rpcapi.revert_to_snapshot(context, volume, snapshot)
+
+    def revert_ut_to_snapshot(self, context, volume, snapshot):
+        """revert a volume to a snapshot"""
+        context.authorize(vol_action_policy.REVERT_POLICY,
+                          target_obj=volume)
+        if volume.status == 'in-use':
+            attachment = objects.VolumeAttachmentList.get_all_by_volume_id(
+                context, volume.id)[0]
+            server = nova.API().get_server(context,
+                                           attachment.instance_uuid,
+                                           privileged_user=True,
+                                           timeout=5)
+            LOG.debug(f'The volume {volume.id} is in-use and '
+                      f'its server is {server.id}')
+            if server.status != 'SHUTOFF':
+                msg = (_("Can't revert volume %(vol_id)s to its snapshot "
+                         "%(snap_id)s. Server %(server_id)s status must be "
+                         "'SHUTOFF', but %(status)s.")
+                       % {"vol_id": volume.id,
+                          "snap_id": snapshot.id,
+                          "server_id": server.id,
+                          "status": server.status})
+                raise exception.InvalidServerStatus(reason=msg)
+            v_res = volume.update_single_status_where(
+                'reverting', 'in-use')
+
+        elif volume.status == 'available':
+            v_res = volume.update_single_status_where(
+                'reverting', 'available')
+            if not v_res:
+                msg = (_("Can't revert volume %(vol_id)s to its snapshot "
+                         "%(snap_id)s. Volume's status must be 'available'.")
+                       % {"vol_id": volume.id, "snap_id": snapshot.id})
+                raise exception.InvalidVolume(reason=msg)
+
+        s_res = snapshot.update_single_status_where(
+            fields.SnapshotStatus.RESTORING,
+            fields.SnapshotStatus.AVAILABLE)
+        if not s_res:
+            msg = (_("Can't revert volume %(vol_id)s to its snapshot "
+                     "%(snap_id)s. Snapshot's status must be 'available'.")
+                   % {"vol_id": volume.id, "snap_id": snapshot.id})
             raise exception.InvalidSnapshot(reason=msg)
 
         self.volume_rpcapi.revert_to_snapshot(context, volume, snapshot)

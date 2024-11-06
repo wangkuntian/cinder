@@ -1089,3 +1089,7 @@ class CinderAcceleratorError(CinderException):
 class SnapshotLimitReached(CinderException):
     message = _("Exceeded the configured limit of "
                 "%(set_limit)s snapshots per volume.")
+
+
+class InvalidServerStatus(Invalid):
+    message = _("Invalid Server Status: %(reason)s")

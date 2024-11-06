@@ -399,6 +399,33 @@ class VolumeController(volumes_v2.VolumeController):
         retval = self._view_builder.detail(req, new_volume)
         return retval
 
+    @wsgi.response(http_client.ACCEPTED)
+    @wsgi.Controller.api_version(mv.VOLUME_REVERT)
+    @wsgi.action('revert_ut')
+    def revert_ut(self, req, id, body):
+        """revert a volume to a snapshot"""
+
+        context = req.environ['cinder.context']
+        self.assert_valid_body(body, 'revert_ut')
+        snapshot_id = body['revert_ut'].get('snapshot_id')
+        volume = self.volume_api.get_volume(context, id)
+        snapshot = self.volume_api.get_snapshot(context, snapshot_id)
+        if volume.size != snapshot.volume_size:
+            msg = _("Can't revert volume %(v_id)s to its snapshot "
+                    "%(s_id)s. The volume size must be equal to the snapshot "
+                    "size.")
+            raise exc.HTTPBadRequest(explanation=msg % {'s_id': snapshot_id,
+                                                        'v_id': volume.id})
+        try:
+            msg = 'Reverting volume %(v_id)s to snapshot %(s_id)s.'
+            LOG.info(msg, {'v_id': volume.id,
+                           's_id': snapshot_id})
+            self.volume_api.revert_ut_to_snapshot(context, volume, snapshot)
+        except (exception.InvalidVolume, exception.InvalidSnapshot) as e:
+            raise exc.HTTPConflict(explanation=six.text_type(e))
+        except exception.VolumeSizeExceedsAvailableQuota as e:
+            raise exc.HTTPForbidden(explanation=six.text_type(e))
+
 
 def create_resource(ext_mgr):
     return wsgi.Resource(VolumeController(ext_mgr))

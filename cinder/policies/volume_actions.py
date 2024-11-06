@@ -21,6 +21,7 @@ from cinder.policies import base
 EXTEND_POLICY = "volume:extend"
 EXTEND_ATTACHED_POLICY = "volume:extend_attached_volume"
 REVERT_POLICY = "volume:revert_to_snapshot"
+REVERT_UT_POLICY = "volume:revert_ut_to_snapshot"
 RESET_STATUS = "volume_extension:volume_admin_actions:reset_status"
 RETYPE_POLICY = "volume:retype"
 UPDATE_READONLY_POLICY = "volume:update_readonly_flag"
@@ -69,6 +70,16 @@ volume_action_policies = [
             {
                 'method': 'POST',
                 'path': '/volumes/{volume_id}/action (revert)'
+            }
+        ]),
+    policy.DocumentedRuleDefault(
+        name=REVERT_UT_POLICY,
+        check_str=base.RULE_ADMIN_OR_OWNER,
+        description="Revert a volume to a snapshot.",
+        operations=[
+            {
+                'method': 'POST',
+                'path': '/volumes/{volume_id}/action (revert_ut)'
             }
         ]),
     policy.DocumentedRuleDefault(
