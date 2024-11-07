@@ -58,6 +58,7 @@ from cinder import quota
 from cinder import utils
 from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import volume_utils
+from cinder.compute import nova
 
 LOG = logging.getLogger(__name__)
 
@@ -433,6 +434,8 @@ class BackupManager(manager.SchedulerDependentManager):
             if updates:
                 backup.update(updates)
             backup.save()
+
+            self._update_instance_status(context, backup, snapshot_id)
 
             # Handle the num_dependent_backups of parent backup when child
             # backup has created successfully.
@@ -1095,3 +1098,28 @@ class BackupManager(manager.SchedulerDependentManager):
             'availability_zone': self.az
         }
         self.update_service_capabilities(backup_stats)
+
+    @staticmethod
+    def _update_instance_status(context, backup, snapshot_id):
+        if snapshot_id:
+            return
+        attachments = objects.VolumeAttachmentList.get_all_by_volume_id(
+            context, backup.volume_id
+        )
+        instance_id = attachments[0].instance_uuid
+        attachments = objects.VolumeAttachmentList.get_all_by_instance_uuid(
+            context, instance_id
+        )
+        for attachment in attachments:
+            if attachment.volume_id == backup.volume_id:
+                continue
+            volume = objects.Volume.get_by_id(attachment.volume_id)
+            previous_status = volume.get('previous_status', None)
+            if previous_status != fields.VolumeStatus.BACKING_UP:
+                return
+            status = volume.get('status', None)
+            if status != fields.VolumeStatus.ATTACHING:
+                return
+        LOG.info('update instance %s status to active' % instance_id)
+        nova.API().reset_server_state(context, instance_id, 'active')
+
