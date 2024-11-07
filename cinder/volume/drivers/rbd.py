@@ -1566,6 +1566,8 @@ class RBDDriver(driver.CloneableImageVD, driver.MigrateVD,
     def clone_image(self, context, volume,
                     image_location, image_meta,
                     image_service):
+        properties = image_meta.get('properties', {})
+        need_flatten = properties.get('need_flatten', False)
         if image_location:
             # Note: image_location[0] is glance image direct_url.
             # image_location[1] contains the list of all locations (including
@@ -1585,7 +1587,10 @@ class RBDDriver(driver.CloneableImageVD, driver.MigrateVD,
                         self._parse_location(url_location)
                     volume_update = self._clone(volume, pool, image, snapshot)
                     volume_update['provider_location'] = None
-                    self._resize(volume)
+                    if need_flatten:
+                        self._flatten(self.configuration.rbd_pool, volume.name)
+                    else:
+                        self._resize(volume)
                     return volume_update, True
         return ({}, False)
 
